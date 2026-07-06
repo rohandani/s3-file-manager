@@ -15,7 +15,7 @@
   - Test authentication flow and session management
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5_
 
-- [ ] 3. Configure AWS S3 integration and environment setup
+- [x] 3. Configure AWS S3 integration and environment setup
   - Install AWS SDK v3 and configure S3 client
   - Set up environment variables for AWS credentials and configuration
   - Create S3 service layer with bucket and object management methods
@@ -23,7 +23,7 @@
   - Write unit tests for S3 service methods
   - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5_
 
-- [ ] 4. Build file upload UI with drag-and-drop functionality
+- [x] 4. Build file upload UI with drag-and-drop functionality
   - Install react-dropzone and create file selection component
   - Implement file preview and validation (size, type restrictions)
   - Create upload progress indicators and status management
