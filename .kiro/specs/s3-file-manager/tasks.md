@@ -31,55 +31,40 @@
   - Build responsive UI that works on mobile and desktop
   - _Requirements: 2.1, 2.2, 2.3_
 
-- [x] 5. Implement zip creation and upload method selection
-  - Install JSZip library for client-side archive creation
-  - Create component for choosing between individual and zip upload methods
-  - Implement zip file creation with progress indication
-  - Add fallback mechanism for zip creation failures
-  - Write tests for zip creation and method selection logic
-  - _Requirements: 3.1, 3.2, 3.4, 3.5_
+- [ ] 5. Create API routes for S3 operations
+  - Create API endpoint for bucket creation with validation
+  - Build API endpoint for listing user buckets
+  - Implement file upload API route with multipart upload support
+  - Add API route for listing objects in specific bucket
+  - Create API route for generating presigned download URLs
+  - _Requirements: 4.1, 4.2, 4.3, 5.1, 6.1, 6.2_
 
-- [ ] 6. Build cost calculator service and comparison UI
-  - Create cost calculation service using AWS pricing data
-  - Implement cost comparison between individual files and zip uploads
-  - Build UI component to display cost estimates and savings
-  - Add disclaimer for cost estimate accuracy
-  - Create fallback guidance when pricing data is unavailable
-  - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 3.2_
+- [ ] 6. Simplify FileUploadManager and integrate real bucket operations
+  - Remove zip/method selection UI (individual upload only)
+  - Replace mock bucket list with actual API calls
+  - Connect bucket creation form to API endpoint
+  - Implement real file upload processing with S3Service
+  - Add proper error handling and user feedback
+  - Update upload progress to show actual upload status
+  - _Requirements: 4.1, 4.2, 4.3, 2.2, 2.3, 2.4, 2.5_
 
-- [ ] 7. Implement bucket creation with user naming and date stamping
-  - Create bucket naming validation following AWS S3 conventions
-  - Implement automatic date appending to user-provided bucket names
-  - Add bucket creation API endpoint with proper error handling
-  - Create UI for bucket name input with real-time validation feedback
-  - Write tests for bucket naming logic and validation rules
-  - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5_
-
-- [ ] 8. Build file upload processing and S3 storage
-  - Create API endpoints for handling file uploads to S3
-  - Implement multipart upload for large files
-  - Add upload progress tracking and error handling
-  - Create success confirmation with S3 location details
-  - Implement retry mechanism for failed uploads
-  - _Requirements: 2.2, 2.3, 2.4, 2.5_
-
-- [ ] 9. Create bucket listing and management interface
-  - Build API endpoint to fetch user's S3 buckets
-  - Create bucket list UI component with metadata display
+- [ ] 7. Create bucket management pages and components
+  - Create /buckets page for bucket listing
+  - Build BucketList component with metadata display
   - Implement lazy loading for performance optimization
   - Add empty state handling for users with no buckets
   - Include error handling and retry functionality for bucket listing
   - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5_
 
-- [ ] 10. Implement object browsing within buckets
-  - Create API endpoint for listing objects in specific bucket
-  - Build object list UI with file details (name, size, date, storage class)
+- [ ] 8. Implement object browsing within buckets
+  - Create /buckets/[bucketName] page for object listing
+  - Build ObjectList component with file details display
   - Implement on-demand object retrieval to control costs
   - Add download and management options for individual objects
   - Handle empty buckets with appropriate messaging
   - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5_
 
-- [ ] 11. Add offline functionality and service worker features
+- [ ] 9. Add offline functionality and service worker features
   - Configure service worker caching strategies for PWA
   - Implement offline UI states and messaging
   - Add IndexedDB storage for offline data persistence
@@ -87,15 +72,15 @@
   - Test offline functionality and graceful degradation
   - _Requirements: 8.3, 8.4, 8.5_
 
-- [ ] 12. Implement comprehensive error handling and user feedback
+- [ ] 10. Implement comprehensive error handling and user feedback
   - Create centralized error handling system with user-friendly messages
   - Add error boundary components for React error catching
   - Implement proper HTTP error status codes and responses
   - Create toast notifications for success/error states
   - Add logging and monitoring for debugging purposes
-  - _Requirements: 1.4, 2.5, 4.5, 5.5, 6.4, 7.4, 9.4_
+  - _Requirements: 1.4, 2.5, 4.5, 5.5, 6.4, 9.4_
 
-- [ ] 13. Add security measures and input validation
+- [ ] 11. Add security measures and input validation
   - Implement proper CORS configuration and security headers
   - Add input sanitization and validation for all user inputs
   - Set up rate limiting for API endpoints
@@ -103,7 +88,7 @@
   - Add client-side and server-side file type and size validation
   - _Requirements: 9.1, 9.2, 9.3_
 
-- [ ] 14. Create comprehensive test suite
+- [ ] 12. Create comprehensive test suite
   - Write unit tests for all service functions and utilities
   - Create integration tests for API endpoints and workflows
   - Add component tests for React components using Testing Library
@@ -111,7 +96,7 @@
   - Set up test coverage reporting and CI integration
   - _Requirements: All requirements via testing validation_
 
-- [ ] 15. Optimize performance and add production readiness
+- [ ] 13. Optimize performance and add production readiness
   - Implement code splitting and lazy loading for components
   - Add image optimization and compression for uploaded files
   - Configure bundle optimization and tree shaking
