@@ -31,7 +31,7 @@
   - Build responsive UI that works on mobile and desktop
   - _Requirements: 2.1, 2.2, 2.3_
 
-- [ ] 5. Create API routes for S3 operations
+- [x] 5. Create API routes for S3 operations
   - Create API endpoint for bucket creation with validation
   - Build API endpoint for listing user buckets
   - Implement file upload API route with multipart upload support

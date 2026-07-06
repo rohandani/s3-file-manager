@@ -44,9 +44,7 @@ describe('S3Service', () => {
       expect(s3Mock.commandCalls(CreateBucketCommand)).toHaveLength(1);
       expect(s3Mock.commandCalls(CreateBucketCommand)[0].args[0].input).toEqual({
         Bucket: bucketName,
-        CreateBucketConfiguration: {
-          LocationConstraint: undefined,
-        },
+        CreateBucketConfiguration: undefined,
       });
 
       vi.useRealTimers();
