@@ -2,7 +2,6 @@
 
 import { useSession } from 'next-auth/react'
 import SignOutButton from './SignOutButton'
-import Image from 'next/image'
 
 export default function UserProfile() {
   const { data: session, status } = useSession()
@@ -30,14 +29,20 @@ export default function UserProfile() {
   return (
     <div className="flex items-center justify-between p-4 bg-white border-b">
       <div className="flex items-center space-x-3">
-        {user.image && (
-          <Image
+        {user.image ? (
+          <img
             src={user.image}
             alt={user.name || 'User avatar'}
             width={40}
             height={40}
             className="rounded-full"
           />
+        ) : (
+          <div className="w-10 h-10 bg-gray-300 rounded-full flex items-center justify-center">
+            <span className="text-gray-600 font-medium">
+              {user.name?.[0]?.toUpperCase() || 'U'}
+            </span>
+          </div>
         )}
         <div className="flex flex-col">
           <span className="font-medium text-gray-900">{user.name}</span>
