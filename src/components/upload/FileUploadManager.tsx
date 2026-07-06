@@ -4,8 +4,10 @@ import { useState, useCallback } from 'react'
 import FileUploadZone, { FileWithPreview } from './FileUploadZone'
 import FilePreview from './FilePreview'
 import UploadProgress, { UploadProgressFile } from './UploadProgress'
+import UploadMethodSelector, { UploadMethod } from './UploadMethodSelector'
+import ZipCreationModal from './ZipCreationModal'
+import { ZipCreationResult } from '@/lib/services/zipService'
 
-type UploadMethod = 'individual' | 'zip'
 type UploadStep = 'select' | 'method' | 'progress' | 'complete'
 
 interface FileUploadManagerProps {
@@ -19,6 +21,8 @@ export default function FileUploadManager({ onUploadComplete }: FileUploadManage
   const [uploadProgress, setUploadProgress] = useState<UploadProgressFile[]>([])
   const [totalProgress, setTotalProgress] = useState(0)
   const [isUploading, setIsUploading] = useState(false)
+  const [showZipModal, setShowZipModal] = useState(false)
+  const [zipBlob, setZipBlob] = useState<Blob | null>(null)
 
   const handleFilesAccepted = useCallback((files: FileWithPreview[]) => {
     setSelectedFiles(prevFiles => [...prevFiles, ...files])
@@ -47,11 +51,102 @@ export default function FileUploadManager({ onUploadComplete }: FileUploadManage
     setCurrentStep('select')
   }, [selectedFiles])
 
+  // Simulate upload for demo purposes - replace with actual upload logic
+  const simulateUpload = async (files: UploadProgressFile[]) => {
+    const updateProgress = (index: number, progress: number, status: UploadProgressFile['status'], error?: string) => {
+      setUploadProgress(prev => {
+        const updated = [...prev]
+        updated[index] = { ...updated[index], progress, status, error }
+        return updated
+      })
+
+      // Update total progress
+      setTotalProgress(prev => {
+        const completedFiles = files.filter((_, i) => i < index || (i === index && status === 'completed')).length
+        const currentFileProgress = index < files.length && status === 'uploading' ? progress / 100 : 0
+        return ((completedFiles + currentFileProgress) / files.length) * 100
+      })
+    }
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i]
+
+      // Start uploading this file
+      updateProgress(i, 0, 'uploading')
+
+      // Simulate progress updates
+      for (let progress = 0; progress <= 100; progress += 10) {
+        await new Promise(resolve => setTimeout(resolve, 100))
+
+        // Simulate occasional errors
+        if (progress === 50 && Math.random() < 0.1) {
+          updateProgress(i, progress, 'error', 'Network connection failed')
+          break
+        }
+
+        if (progress === 100) {
+          updateProgress(i, 100, 'completed')
+        } else {
+          updateProgress(i, progress, 'uploading')
+        }
+      }
+    }
+
+    setIsUploading(false)
+    setCurrentStep('complete')
+
+    // Call completion callback if provided
+    if (onUploadComplete) {
+      onUploadComplete(files.map(f => ({ name: f.name, status: 'completed' })))
+    }
+  }
+
+  // Simulate ZIP upload for demo purposes - replace with actual upload logic
+  const simulateZipUpload = async (progressFile: UploadProgressFile, zipBlob: Blob) => {
+    const updateProgress = (progress: number, status: UploadProgressFile['status'], error?: string) => {
+      setUploadProgress([{ ...progressFile, progress, status, error }])
+      setTotalProgress(progress)
+    }
+
+    // Start uploading ZIP file
+    updateProgress(0, 'uploading')
+
+    // Simulate progress updates for ZIP upload
+    for (let progress = 0; progress <= 100; progress += 5) {
+      await new Promise(resolve => setTimeout(resolve, 150))
+
+      // Simulate occasional errors
+      if (progress === 30 && Math.random() < 0.05) {
+        updateProgress(progress, 'error', 'Network connection failed during ZIP upload')
+        break
+      }
+
+      if (progress === 100) {
+        updateProgress(100, 'completed')
+      } else {
+        updateProgress(progress, 'uploading')
+      }
+    }
+
+    setIsUploading(false)
+    setCurrentStep('complete')
+
+    // Call completion callback if provided
+    if (onUploadComplete) {
+      onUploadComplete([{ name: progressFile.name, status: 'completed', method: 'zip' }])
+    }
+  }
+
   const handleNextStep = () => {
     if (currentStep === 'select' && selectedFiles.length > 0) {
       setCurrentStep('method')
     } else if (currentStep === 'method') {
-      startUpload()
+      if (uploadMethod === 'zip') {
+        // Show ZIP creation modal
+        setShowZipModal(true)
+      } else {
+        startUpload()
+      }
     }
   }
 
@@ -63,74 +158,59 @@ export default function FileUploadManager({ onUploadComplete }: FileUploadManage
       setUploadProgress([])
       setTotalProgress(0)
       setIsUploading(false)
+      setZipBlob(null)
     }
   }
 
-  const startUpload = () => {
+  const handleZipSuccess = (result: ZipCreationResult) => {
+    if (result.blob) {
+      setZipBlob(result.blob)
+      setShowZipModal(false)
+      startUpload(result.blob)
+    }
+  }
+
+  const handleZipError = (error: string) => {
+    console.error('ZIP creation failed:', error)
+    setShowZipModal(false)
+    // Fallback to individual upload
+    setUploadMethod('individual')
+    alert(`ZIP creation failed: ${error}\\n\\nFalling back to individual file upload.`)
+    startUpload()
+  }
+
+  const startUpload = (zipFile?: Blob) => {
     setCurrentStep('progress')
     setIsUploading(true)
-    
-    // Initialize progress tracking for all files
-    const initialProgress: UploadProgressFile[] = selectedFiles.map(file => ({
-      name: file.name,
-      size: file.size,
-      progress: 0,
-      status: 'pending'
-    }))
-    
+
+    // Initialize progress tracking
+    let initialProgress: UploadProgressFile[]
+
+    if (uploadMethod === 'zip' && zipFile) {
+      // Single file progress for ZIP
+      initialProgress = [{
+        name: `archive-${Date.now()}.zip`,
+        size: zipFile.size,
+        progress: 0,
+        status: 'pending'
+      }]
+    } else {
+      // Individual file progress
+      initialProgress = selectedFiles.map(file => ({
+        name: file.name,
+        size: file.size,
+        progress: 0,
+        status: 'pending'
+      }))
+    }
+
     setUploadProgress(initialProgress)
-    
+
     // Simulate upload progress (replace with actual upload logic)
-    simulateUpload(initialProgress)
-  }
-
-  // Simulate upload for demo purposes - replace with actual upload logic
-  const simulateUpload = async (files: UploadProgressFile[]) => {
-    const updateProgress = (index: number, progress: number, status: UploadProgressFile['status'], error?: string) => {
-      setUploadProgress(prev => {
-        const updated = [...prev]
-        updated[index] = { ...updated[index], progress, status, error }
-        return updated
-      })
-      
-      // Update total progress
-      setTotalProgress(prev => {
-        const completedFiles = files.filter((_, i) => i < index || (i === index && status === 'completed')).length
-        const currentFileProgress = index < files.length && status === 'uploading' ? progress / 100 : 0
-        return ((completedFiles + currentFileProgress) / files.length) * 100
-      })
-    }
-
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i]
-      
-      // Start uploading this file
-      updateProgress(i, 0, 'uploading')
-      
-      // Simulate progress updates
-      for (let progress = 0; progress <= 100; progress += 10) {
-        await new Promise(resolve => setTimeout(resolve, 100))
-        
-        // Simulate occasional errors
-        if (progress === 50 && Math.random() < 0.1) {
-          updateProgress(i, progress, 'error', 'Network connection failed')
-          break
-        }
-        
-        if (progress === 100) {
-          updateProgress(i, 100, 'completed')
-        } else {
-          updateProgress(i, progress, 'uploading')
-        }
-      }
-    }
-    
-    setIsUploading(false)
-    setCurrentStep('complete')
-    
-    // Call completion callback if provided
-    if (onUploadComplete) {
-      onUploadComplete(files.map(f => ({ name: f.name, status: 'completed' })))
+    if (uploadMethod === 'zip' && zipFile) {
+      simulateZipUpload(initialProgress[0], zipFile)
+    } else {
+      simulateUpload(initialProgress)
     }
   }
 
@@ -142,7 +222,7 @@ export default function FileUploadManager({ onUploadComplete }: FileUploadManage
         updated[fileIndex] = { ...updated[fileIndex], status: 'pending', progress: 0, error: undefined }
         return updated
       })
-      
+
       // Restart upload for this file (simplified for demo)
       setTimeout(() => {
         simulateUpload([uploadProgress[fileIndex]])
@@ -163,6 +243,8 @@ export default function FileUploadManager({ onUploadComplete }: FileUploadManage
     setUploadProgress([])
     setTotalProgress(0)
     setIsUploading(false)
+    setZipBlob(null)
+    setShowZipModal(false)
   }
 
   return (
@@ -172,23 +254,21 @@ export default function FileUploadManager({ onUploadComplete }: FileUploadManage
         {['select', 'method', 'progress'].map((step, index) => (
           <div key={step} className="flex items-center">
             <div
-              className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-                currentStep === step
-                  ? 'bg-blue-600 text-white'
-                  : index < ['select', 'method', 'progress'].indexOf(currentStep)
+              className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${currentStep === step
+                ? 'bg-blue-600 text-white'
+                : index < ['select', 'method', 'progress'].indexOf(currentStep)
                   ? 'bg-green-500 text-white'
                   : 'bg-gray-300 text-gray-600'
-              }`}
+                }`}
             >
               {index + 1}
             </div>
             {index < 2 && (
               <div
-                className={`w-12 h-1 mx-2 ${
-                  index < ['select', 'method', 'progress'].indexOf(currentStep)
-                    ? 'bg-green-500'
-                    : 'bg-gray-300'
-                }`}
+                className={`w-12 h-1 mx-2 ${index < ['select', 'method', 'progress'].indexOf(currentStep)
+                  ? 'bg-green-500'
+                  : 'bg-gray-300'
+                  }`}
               />
             )}
           </div>
@@ -235,97 +315,14 @@ export default function FileUploadManager({ onUploadComplete }: FileUploadManage
       )}
 
       {currentStep === 'method' && (
-        <div className="space-y-6">
-          <div className="text-center">
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">
-              Choose Upload Method
-            </h2>
-            <p className="text-gray-600">
-              Select how you'd like to upload your files to optimize costs
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <button
-              onClick={() => setUploadMethod('individual')}
-              className={`p-6 border-2 rounded-lg text-left transition-colors ${
-                uploadMethod === 'individual'
-                  ? 'border-blue-500 bg-blue-50'
-                  : 'border-gray-200 hover:border-gray-300'
-              }`}
-            >
-              <div className="flex items-center mb-3">
-                <div className={`w-4 h-4 rounded-full border-2 mr-3 ${
-                  uploadMethod === 'individual'
-                    ? 'border-blue-500 bg-blue-500'
-                    : 'border-gray-300'
-                }`}>
-                  {uploadMethod === 'individual' && (
-                    <div className="w-2 h-2 bg-white rounded-full mx-auto mt-0.5"></div>
-                  )}
-                </div>
-                <h3 className="text-lg font-semibold text-gray-900">
-                  Upload Individually
-                </h3>
-              </div>
-              <p className="text-sm text-gray-600 mb-2">
-                Upload each file separately to S3
-              </p>
-              <p className="text-xs text-gray-500">
-                • Better for mixed file types
-                • Easier to manage individual files
-                • Slightly higher request costs
-              </p>
-            </button>
-
-            <button
-              onClick={() => setUploadMethod('zip')}
-              className={`p-6 border-2 rounded-lg text-left transition-colors ${
-                uploadMethod === 'zip'
-                  ? 'border-blue-500 bg-blue-50'
-                  : 'border-gray-200 hover:border-gray-300'
-              }`}
-            >
-              <div className="flex items-center mb-3">
-                <div className={`w-4 h-4 rounded-full border-2 mr-3 ${
-                  uploadMethod === 'zip'
-                    ? 'border-blue-500 bg-blue-500'
-                    : 'border-gray-300'
-                }`}>
-                  {uploadMethod === 'zip' && (
-                    <div className="w-2 h-2 bg-white rounded-full mx-auto mt-0.5"></div>
-                  )}
-                </div>
-                <h3 className="text-lg font-semibold text-gray-900">
-                  Create ZIP Archive
-                </h3>
-              </div>
-              <p className="text-sm text-gray-600 mb-2">
-                Compress files into a single ZIP archive
-              </p>
-              <p className="text-xs text-gray-500">
-                • Reduces storage costs
-                • Faster transfer for many small files
-                • Lower request costs
-              </p>
-            </button>
-          </div>
-
-          <div className="flex justify-between">
-            <button
-              onClick={handleBackStep}
-              className="px-6 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-            >
-              ← Back to File Selection
-            </button>
-            <button
-              onClick={handleNextStep}
-              className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-            >
-              Start Upload →
-            </button>
-          </div>
-        </div>
+        <UploadMethodSelector
+          files={selectedFiles}
+          selectedMethod={uploadMethod}
+          onMethodChange={setUploadMethod}
+          onNext={handleNextStep}
+          onBack={handleBackStep}
+          disabled={isUploading}
+        />
       )}
 
       {(currentStep === 'progress' || currentStep === 'complete') && (
@@ -335,8 +332,10 @@ export default function FileUploadManager({ onUploadComplete }: FileUploadManage
               {currentStep === 'progress' ? 'Uploading Files' : 'Upload Complete'}
             </h2>
             <p className="text-gray-600">
-              {currentStep === 'progress' 
-                ? `Uploading ${selectedFiles.length} files ${uploadMethod === 'zip' ? 'as ZIP archive' : 'individually'}`
+              {currentStep === 'progress'
+                ? uploadMethod === 'zip'
+                  ? `Uploading ZIP archive containing ${selectedFiles.length} files`
+                  : `Uploading ${selectedFiles.length} files individually`
                 : 'Your files have been processed'
               }
             </p>
@@ -358,7 +357,7 @@ export default function FileUploadManager({ onUploadComplete }: FileUploadManage
                 Upload More Files
               </button>
               <button
-                onClick={() => {/* Navigate to bucket management */}}
+                onClick={() => {/* Navigate to bucket management */ }}
                 className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
               >
                 View in Bucket Manager →
@@ -367,6 +366,15 @@ export default function FileUploadManager({ onUploadComplete }: FileUploadManage
           )}
         </div>
       )}
+
+      {/* ZIP Creation Modal */}
+      <ZipCreationModal
+        files={selectedFiles}
+        isOpen={showZipModal}
+        onClose={() => setShowZipModal(false)}
+        onSuccess={handleZipSuccess}
+        onError={handleZipError}
+      />
     </div>
   )
 }

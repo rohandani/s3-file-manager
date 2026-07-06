@@ -31,7 +31,7 @@
   - Build responsive UI that works on mobile and desktop
   - _Requirements: 2.1, 2.2, 2.3_
 
-- [ ] 5. Implement zip creation and upload method selection
+- [x] 5. Implement zip creation and upload method selection
   - Install JSZip library for client-side archive creation
   - Create component for choosing between individual and zip upload methods
   - Implement zip file creation with progress indication
