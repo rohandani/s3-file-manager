@@ -1,15 +1,15 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { 
-  DocumentIcon, 
-  PhotoIcon, 
-  VideoCameraIcon, 
+import {
+  DocumentIcon,
+  PhotoIcon,
+  VideoCameraIcon,
   MusicalNoteIcon,
   ArchiveBoxIcon,
   ArrowPathIcon,
   ExclamationTriangleIcon,
-  ArrowDownTrayIcon 
+  ArrowDownTrayIcon
 } from '@heroicons/react/24/outline';
 
 interface ObjectInfo {
@@ -32,10 +32,10 @@ interface LoadingState {
 
 export default function ObjectList({ bucketName }: ObjectListProps) {
   const [objects, setObjects] = useState<ObjectInfo[]>([]);
-  const [loading, setLoading] = useState<LoadingState>({ 
-    initial: true, 
-    refresh: false, 
-    download: {} 
+  const [loading, setLoading] = useState<LoadingState>({
+    initial: true,
+    refresh: false,
+    download: {}
   });
   const [error, setError] = useState<string | null>(null);
 
@@ -101,10 +101,10 @@ export default function ObjectList({ bucketName }: ObjectListProps) {
         if (response.ok) {
           // Get the file as a blob from the server response
           const blob = await response.blob();
-          
+
           // Create object URL and trigger download
           const objectUrl = URL.createObjectURL(blob);
-          
+
           try {
             const link = document.createElement('a');
             link.href = objectUrl;
@@ -142,7 +142,7 @@ export default function ObjectList({ bucketName }: ObjectListProps) {
 
       // Try direct presigned URL download first
       const presignedUrl = presignedData.data.url;
-      
+
       try {
         // For some browsers and file types, direct link with download attribute works
         const link = document.createElement('a');
@@ -156,7 +156,7 @@ export default function ObjectList({ bucketName }: ObjectListProps) {
         document.body.removeChild(link);
       } catch (directError) {
         console.warn('Direct download failed, trying fetch method:', directError);
-        
+
         // Final fallback: fetch and create blob
         const fileResponse = await fetch(presignedUrl, {
           method: 'GET',
@@ -169,7 +169,7 @@ export default function ObjectList({ bucketName }: ObjectListProps) {
 
         const blob = await fileResponse.blob();
         const objectUrl = URL.createObjectURL(blob);
-        
+
         try {
           const link = document.createElement('a');
           link.href = objectUrl;
@@ -340,7 +340,7 @@ export default function ObjectList({ bucketName }: ObjectListProps) {
         {objects.map((object) => {
           const fileName = getFileName(object.key);
           const isDownloading = loading.download[object.key];
-          
+
           return (
             <div key={object.key} className="px-6 py-4 hover:bg-gray-50">
               <div className="flex items-center justify-between">

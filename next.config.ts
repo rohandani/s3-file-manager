@@ -3,6 +3,13 @@ import withPWA from "@ducanh2912/next-pwa";
 
 const nextConfig: NextConfig = {
   turbopack: {},
+  serverExternalPackages: [],
+  experimental: {
+    // Set body size limit for uploads (100MB)
+    serverActions: {
+      bodySizeLimit: '100mb',
+    },
+  },
   images: {
     remotePatterns: [
       {
