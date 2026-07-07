@@ -84,33 +84,107 @@ export default function ObjectList({ bucketName }: ObjectListProps) {
         download: { ...prev.download, [objectKey]: true }
       }));
 
-      const response = await fetch('/api/s3/presigned-url', {
+      const fileName = getFileName(objectKey);
+
+      // Try the server-side streaming download first (most reliable)
+      try {
+        const response = await fetch('/api/s3/download', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            key: objectKey,
+          }),
+        });
+
+        if (response.ok) {
+          // Get the file as a blob from the server response
+          const blob = await response.blob();
+          
+          // Create object URL and trigger download
+          const objectUrl = URL.createObjectURL(blob);
+          
+          try {
+            const link = document.createElement('a');
+            link.href = objectUrl;
+            link.download = fileName;
+            link.style.display = 'none';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+          } finally {
+            URL.revokeObjectURL(objectUrl);
+          }
+          return; // Success, exit early
+        }
+      } catch (serverError) {
+        console.warn('Server-side download failed, trying client-side method:', serverError);
+      }
+
+      // Fallback to client-side presigned URL method
+      const presignedResponse = await fetch('/api/s3/presigned-url', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           key: objectKey,
-          expiresIn: 3600, // 1 hour
+          expiresIn: 3600,
         }),
       });
 
-      const data = await response.json();
+      const presignedData = await presignedResponse.json();
 
-      if (!response.ok) {
-        throw new Error(data.error?.message || 'Failed to generate download URL');
+      if (!presignedResponse.ok) {
+        throw new Error(presignedData.error?.message || 'Failed to generate download URL');
       }
 
-      // Create a temporary anchor element to trigger download
-      const link = document.createElement('a');
-      link.href = data.data.url;
-      link.download = getFileName(objectKey);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      // Try direct presigned URL download first
+      const presignedUrl = presignedData.data.url;
+      
+      try {
+        // For some browsers and file types, direct link with download attribute works
+        const link = document.createElement('a');
+        link.href = presignedUrl;
+        link.download = fileName;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } catch (directError) {
+        console.warn('Direct download failed, trying fetch method:', directError);
+        
+        // Final fallback: fetch and create blob
+        const fileResponse = await fetch(presignedUrl, {
+          method: 'GET',
+          mode: 'cors',
+        });
+
+        if (!fileResponse.ok) {
+          throw new Error('Failed to download file from S3');
+        }
+
+        const blob = await fileResponse.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        
+        try {
+          const link = document.createElement('a');
+          link.href = objectUrl;
+          link.download = fileName;
+          link.style.display = 'none';
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        } finally {
+          URL.revokeObjectURL(objectUrl);
+        }
+      }
+
     } catch (err) {
       console.error('Error downloading file:', err);
-      // You could show a toast notification here
       alert(err instanceof Error ? err.message : 'Failed to download file');
     } finally {
       setLoading(prev => ({

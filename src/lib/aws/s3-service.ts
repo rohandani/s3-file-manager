@@ -328,9 +328,13 @@ export class S3Service {
      */
     async generatePresignedUrl(bucketName: string, key: string, expiresIn: number = 3600): Promise<string> {
         try {
+            // Extract filename from key for Content-Disposition header
+            const filename = key.split('/').pop() || 'download';
+            
             const command = new GetObjectCommand({
                 Bucket: bucketName,
                 Key: key,
+                ResponseContentDisposition: `attachment; filename="${filename}"`,
             });
 
             return await getSignedUrl(this.s3Client, command, { expiresIn });

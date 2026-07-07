@@ -4,13 +4,8 @@
 import React from 'react';
 import { render } from '@testing-library/react';
 import '@testing-library/jest-dom';
-import { vi } from 'vitest';
+import { vi, describe, it, beforeEach, expect } from 'vitest';
 import ObjectList from '@/components/s3/ObjectList';
-import { it } from 'node:test';
-import { it } from 'node:test';
-import { it } from 'node:test';
-import { beforeEach } from 'node:test';
-import { describe } from 'node:test';
 
 // Mock fetch globally
 global.fetch = vi.fn();
@@ -65,5 +60,39 @@ describe('ObjectList', () => {
     
     await findByText('Error Loading Files');
     await findByText('Bucket not found');
+  });
+
+  it('should handle download button click', async () => {
+    // Mock successful API response with file data
+    (global.fetch as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: { objects: [
+          {
+            key: 'test-folder/test-file.pdf',
+            size: 1024,
+            lastModified: new Date('2024-01-01T00:00:00Z'),
+            storageClass: 'STANDARD',
+            etag: 'test-etag'
+          }
+        ] } })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        blob: async () => new Blob(['test content'], { type: 'application/pdf' })
+      });
+
+    const { findByText, getByRole } = render(<ObjectList bucketName="test-bucket" />);
+    
+    // Wait for the file to be rendered
+    await findByText('test-file.pdf');
+    
+    // Find and click the download button
+    const downloadButton = getByRole('button', { name: /download/i });
+    expect(downloadButton).toBeInTheDocument();
+    
+    // Note: We can't easily test the actual download behavior in JSDOM
+    // but we can verify the button is present and clickable
+    expect(downloadButton).not.toBeDisabled();
   });
 });
