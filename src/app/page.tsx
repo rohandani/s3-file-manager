@@ -92,9 +92,12 @@ export default async function Home() {
               <p className="text-gray-600 mb-4">
                 View and manage your S3 buckets and browse stored objects
               </p>
-              <button className="text-blue-600 hover:text-blue-800 font-medium">
+              <Link 
+                href="/buckets"
+                className="text-blue-600 hover:text-blue-800 font-medium"
+              >
                 View Buckets →
-              </button>
+              </Link>
             </div>
           </div>
         </div>

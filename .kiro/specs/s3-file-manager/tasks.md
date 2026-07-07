@@ -48,7 +48,7 @@
   - Update upload progress to show actual upload status
   - _Requirements: 4.1, 4.2, 4.3, 2.2, 2.3, 2.4, 2.5_
 
-- [ ] 7. Create bucket management pages and components
+- [x] 7. Create bucket management pages and components
   - Create /buckets page for bucket listing
   - Build BucketList component with metadata display
   - Implement lazy loading for performance optimization

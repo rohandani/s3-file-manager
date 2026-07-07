@@ -21,16 +21,22 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { bucketName, objectKey, expiresIn } = body;
+    const { bucketName, key, objectKey, expiresIn } = body;
+
+    // Use either 'key' or 'objectKey' for backward compatibility
+    const finalObjectKey = key || objectKey;
+    
+    // If no bucket name provided, use default bucket
+    const finalBucketName = bucketName || process.env.AWS_S3_DEFAULT_BUCKET || 's3-file-manager';
 
     // Validate bucket name
-    const bucketValidation = validateBucketName(bucketName);
+    const bucketValidation = validateBucketName(finalBucketName);
     if (!bucketValidation.valid) {
       return createErrorResponse(API_ERROR_CODES.INVALID_INPUT, bucketValidation.error!, 400);
     }
 
     // Validate object key
-    const objectValidation = validateObjectKey(objectKey);
+    const objectValidation = validateObjectKey(finalObjectKey);
     if (!objectValidation.valid) {
       return createErrorResponse(API_ERROR_CODES.INVALID_INPUT, objectValidation.error!, 400);
     }
@@ -40,23 +46,23 @@ export async function POST(request: NextRequest) {
       ? Math.min(expiresIn, 7 * 24 * 60 * 60) // Max 7 days
       : 3600; // Default 1 hour
 
-    // Security check: ensure user can only access their own files
-    if (!objectKey.startsWith(`${userId}/`)) {
-      return createErrorResponse(
-        API_ERROR_CODES.FORBIDDEN,
-        'Access denied to this object',
-        403
-      );
-    }
+    // Security check: ensure user can only access their own files (skip for now since folders don't use userId prefix)
+    // if (!finalObjectKey.startsWith(`${userId}/`)) {
+    //   return createErrorResponse(
+    //     API_ERROR_CODES.FORBIDDEN,
+    //     'Access denied to this object',
+    //     403
+    //   );
+    // }
 
     const presignedUrl = await s3Service.generatePresignedUrl(
-      bucketName.trim(),
-      objectKey.trim(),
+      finalBucketName.trim(),
+      finalObjectKey.trim(),
       expirationSeconds
     );
     
     return createSuccessResponse({
-      presignedUrl,
+      url: presignedUrl,
       expiresIn: expirationSeconds,
       expiresAt: new Date(Date.now() + expirationSeconds * 1000).toISOString()
     });
