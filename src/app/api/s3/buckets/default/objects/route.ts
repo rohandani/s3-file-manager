@@ -5,6 +5,10 @@ import { ensureAWSInitialized } from '@/lib/aws/initialize';
 import { createSuccessResponse, createErrorResponse, validateAuthentication } from '@/lib/api/utils';
 import { API_ERROR_CODES } from '@/lib/api/types';
 
+// Configure route handler
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 // GET /api/s3/buckets/default/objects - List objects in default bucket
 export async function GET(request: NextRequest) {
   try {

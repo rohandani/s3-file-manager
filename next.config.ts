@@ -5,10 +5,12 @@ const nextConfig: NextConfig = {
   turbopack: {},
   serverExternalPackages: [],
   experimental: {
-    // Set body size limit for uploads (100MB)
+    // Set body size limit for server actions (100MB)
     serverActions: {
       bodySizeLimit: '100mb',
     },
+    // Enable large request body handling
+    largePageDataBytes: 128 * 1024, // 128KB
   },
   images: {
     remotePatterns: [

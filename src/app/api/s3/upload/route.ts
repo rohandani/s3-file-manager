@@ -15,6 +15,30 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300; // 5 minutes timeout for large file uploads
 
+// Custom FormData parser with higher size limits
+async function parseFormDataWithLimits(request: NextRequest) {
+  const contentLength = request.headers.get('content-length');
+  const MAX_SIZE = 100 * 1024 * 1024; // 100MB
+  
+  if (contentLength && parseInt(contentLength) > MAX_SIZE) {
+    throw new Error(`Request body too large: ${Math.round(parseInt(contentLength) / 1024 / 1024)}MB. Maximum allowed: 100MB`);
+  }
+
+  try {
+    // Use the built-in formData() method but with better error handling
+    const formData = await request.formData();
+    return formData;
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.message.includes('boundary') || error.message.includes('FormData')) {
+        throw new Error('FormData parsing failed. This may be due to file size limits or network issues. Try uploading smaller files or check your connection.');
+      }
+      throw error;
+    }
+    throw new Error('Failed to parse form data');
+  }
+}
+
 // POST /api/s3/upload - Upload files to S3 folder
 export async function POST(request: NextRequest) {
   try {
@@ -30,12 +54,12 @@ export async function POST(request: NextRequest) {
 
     let formData: FormData;
     try {
-      formData = await request.formData();
+      formData = await parseFormDataWithLimits(request);
     } catch (formError) {
       console.error('FormData parsing error:', formError);
       return createErrorResponse(
         API_ERROR_CODES.INVALID_INPUT, 
-        'Failed to parse form data. The file may be too large or the request is malformed. Maximum file size is 100MB.',
+        formError instanceof Error ? formError.message : 'Failed to parse form data. The file may be too large or the request is malformed. Maximum file size is 100MB.',
         400
       );
     }

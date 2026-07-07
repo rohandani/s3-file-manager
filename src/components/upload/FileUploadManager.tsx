@@ -4,6 +4,8 @@ import { useState, useCallback, useEffect } from 'react'
 import FileUploadZone, { FileWithPreview } from './FileUploadZone'
 import FilePreview from './FilePreview'
 import UploadProgress, { UploadProgressFile } from './UploadProgress'
+import { validateFile, createSafeFormData, getUploadErrorMessage } from '@/lib/utils/uploadHelpers'
+import { shouldUseChunkedUpload, uploadFileInChunks } from '@/lib/utils/chunkedUploader'
 
 type UploadStep = 'select' | 'bucket' | 'progress' | 'complete'
 
@@ -33,7 +35,27 @@ export default function FileUploadManager({ onUploadComplete }: FileUploadManage
   const [folderError, setFolderError] = useState<string | null>(null)
 
   const handleFilesAccepted = useCallback((files: FileWithPreview[]) => {
-    setSelectedFiles(prevFiles => [...prevFiles, ...files])
+    // Validate files before accepting them
+    const validFiles: FileWithPreview[] = [];
+    const invalidFiles: string[] = [];
+
+    files.forEach(file => {
+      const validation = validateFile(file);
+      if (validation.valid) {
+        validFiles.push(file);
+      } else {
+        invalidFiles.push(`${file.name}: ${validation.error}`);
+      }
+    });
+
+    if (invalidFiles.length > 0) {
+      setError(`Some files were rejected:\n${invalidFiles.join('\n')}`);
+    }
+
+    if (validFiles.length > 0) {
+      setSelectedFiles(prevFiles => [...prevFiles, ...validFiles]);
+      setError(null); // Clear error if we have valid files
+    }
   }, [])
 
   const handleRemoveFile = useCallback((index: number) => {
@@ -130,13 +152,6 @@ export default function FileUploadManager({ onUploadComplete }: FileUploadManage
   }
 
   const uploadFiles = async () => {
-    const formData = new FormData()
-    formData.append('folderName', selectedFolder)
-    
-    selectedFiles.forEach((file, index) => {
-      formData.append('files', file)
-    })
-
     // Initialize progress tracking
     const initialProgress: UploadProgressFile[] = selectedFiles.map(file => ({
       name: file.name,
@@ -152,42 +167,83 @@ export default function FileUploadManager({ onUploadComplete }: FileUploadManage
       // Set all files to uploading status
       setUploadProgress(prev => prev.map(file => ({ ...file, status: 'uploading' })))
       
-      const response = await fetch('/api/s3/upload', {
-        method: 'POST',
-        body: formData,
-      })
+      // Process files individually with appropriate method
+      const uploadResults: any[] = [];
       
-      const result = await response.json()
-      
-      if (!response.ok) {
-        throw new Error(result.error?.message || 'Upload failed')
+      for (let i = 0; i < selectedFiles.length; i++) {
+        const file = selectedFiles[i];
+        
+        try {
+          let result;
+          
+          // Use chunked upload for large files
+          if (shouldUseChunkedUpload(file)) {
+            console.log(`Using chunked upload for large file: ${file.name} (${Math.round(file.size / 1024 / 1024)}MB)`);
+            
+            result = await uploadFileInChunks(file, selectedFolder, {
+              onProgress: (progress, chunkIndex, totalChunks) => {
+                setUploadProgress(prev => prev.map((progressFile, index) => 
+                  index === i 
+                    ? { ...progressFile, progress: Math.round(progress) }
+                    : progressFile
+                ));
+              },
+              onError: (error) => {
+                console.error(`Chunked upload error for ${file.name}:`, error);
+              }
+            });
+          } else {
+            // Use regular Server Action for smaller files
+            console.log(`Using regular upload for file: ${file.name} (${Math.round(file.size / 1024 / 1024)}MB)`);
+            
+            const formData = createSafeFormData(selectedFolder, [file]);
+            const { uploadFilesToS3 } = await import('@/lib/actions/upload')
+            const uploadResponse = await uploadFilesToS3(formData);
+            result = uploadResponse.results[0];
+          }
+          
+          uploadResults.push(result);
+          
+          // Update individual file progress
+          setUploadProgress(prev => prev.map((progressFile, index) => 
+            index === i 
+              ? { 
+                  ...progressFile, 
+                  progress: 100,
+                  status: result.success ? 'completed' : 'error',
+                  error: result.error
+                }
+              : progressFile
+          ));
+          
+        } catch (fileError) {
+          console.error(`Upload error for ${file.name}:`, fileError);
+          const errorMessage = getUploadErrorMessage(fileError);
+          
+          uploadResults.push({
+            success: false,
+            fileName: file.name,
+            fileKey: '',
+            location: '',
+            size: file.size,
+            error: errorMessage
+          });
+          
+          // Update file with error
+          setUploadProgress(prev => prev.map((progressFile, index) => 
+            index === i 
+              ? { 
+                  ...progressFile, 
+                  progress: 0,
+                  status: 'error',
+                  error: errorMessage
+                }
+              : progressFile
+          ));
+        }
       }
       
-      // Update progress based on results
-      const uploadResults = result.data?.results || []
-      
-      setUploadProgress(prev => prev.map((file, index) => {
-        const uploadResult = uploadResults.find((r: any) => r.fileName === file.name)
-        
-        if (uploadResult) {
-          return {
-            ...file,
-            progress: 100,
-            status: uploadResult.success ? 'completed' : 'error',
-            error: uploadResult.error
-          }
-        }
-        
-        return {
-          ...file,
-          progress: 100,
-          status: 'error',
-          error: 'Upload result not found'
-        }
-      }))
-      
       // Calculate final progress
-      const successCount = uploadResults.filter((r: any) => r.success).length
       setTotalProgress(100)
       setCurrentStep('complete')
       
@@ -197,14 +253,17 @@ export default function FileUploadManager({ onUploadComplete }: FileUploadManage
       }
       
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Upload failed')
+      console.error('Upload error:', err)
+      
+      const errorMessage = getUploadErrorMessage(err);
+      setError(errorMessage)
       
       // Mark all files as error
       setUploadProgress(prev => prev.map(file => ({
         ...file,
         progress: 0,
         status: 'error',
-        error: err instanceof Error ? err.message : 'Upload failed'
+        error: errorMessage
       })))
     } finally {
       setIsUploading(false)
@@ -262,44 +321,108 @@ export default function FileUploadManager({ onUploadComplete }: FileUploadManage
     })
 
     try {
-      // Create FormData for single file
-      const formData = new FormData()
-      formData.append('folderName', selectedFolder)
-      formData.append('files', originalFile)
-
-      const response = await fetch('/api/s3/upload', {
-        method: 'POST',
-        body: formData,
-      })
+      let result: any;
       
-      const result = await response.json()
-      
-      if (!response.ok) {
-        throw new Error(result.error?.message || 'Upload failed')
+      // Use chunked upload for large files
+      if (shouldUseChunkedUpload(originalFile)) {
+        console.log(`Retrying with chunked upload for: ${originalFile.name}`);
+        
+        result = await uploadFileInChunks(originalFile, selectedFolder, {
+          onProgress: (progress) => {
+            setUploadProgress(prev => {
+              const updated = [...prev]
+              updated[fileIndex] = { 
+                ...updated[fileIndex], 
+                progress: Math.round(progress) 
+              }
+              return updated
+            })
+          },
+          onError: (error) => {
+            console.error(`Chunked retry error for ${originalFile.name}:`, error);
+          }
+        });
+        
+        // Update this file's progress
+        setUploadProgress(prev => {
+          const updated = [...prev]
+          updated[fileIndex] = {
+            ...updated[fileIndex],
+            progress: 100,
+            status: result.success ? 'completed' : 'error',
+            error: result.error
+          }
+          return updated
+        });
+        
+        return;
       }
       
-      const uploadResult = result.data?.results?.[0]
-      
-      // Update this file's progress
-      setUploadProgress(prev => {
-        const updated = [...prev]
-        updated[fileIndex] = {
-          ...updated[fileIndex],
-          progress: 100,
-          status: uploadResult?.success ? 'completed' : 'error',
-          error: uploadResult?.error
-        }
-        return updated
-      })
+      // Try single file upload first (bypasses FormData issues for smaller files)
+      try {
+        const arrayBuffer = await originalFile.arrayBuffer()
+        const { uploadSingleFile } = await import('@/lib/actions/upload')
+        
+        const uploadResult = await uploadSingleFile(
+          selectedFolder,
+          originalFile.name,
+          arrayBuffer,
+          originalFile.type
+        )
+        
+        // Update this file's progress
+        setUploadProgress(prev => {
+          const updated = [...prev]
+          updated[fileIndex] = {
+            ...updated[fileIndex],
+            progress: 100,
+            status: uploadResult.success ? 'completed' : 'error',
+            error: uploadResult.error
+          }
+          return updated
+        })
+        return
+      } catch (singleFileError) {
+        console.warn('Single file upload failed, trying FormData method:', singleFileError)
+      }
+
+      // Fallback to FormData method for smaller files
+      try {
+        const formData = createSafeFormData(selectedFolder, [originalFile]);
+
+        // Use Server Action for retry
+        const { uploadFilesToS3 } = await import('@/lib/actions/upload')
+        const formDataResult = await uploadFilesToS3(formData)
+        
+        const uploadResult = formDataResult.results?.[0]
+        
+        // Update this file's progress
+        setUploadProgress(prev => {
+          const updated = [...prev]
+          updated[fileIndex] = {
+            ...updated[fileIndex],
+            progress: 100,
+            status: uploadResult?.success ? 'completed' : 'error',
+            error: uploadResult?.error
+          }
+          return updated
+        })
+      } catch (formDataError) {
+        throw formDataError; // Re-throw to be handled by outer catch
+      }
       
     } catch (err) {
+      console.error('Retry upload error:', err)
+      
+      const errorMessage = getUploadErrorMessage(err);
+      
       setUploadProgress(prev => {
         const updated = [...prev]
         updated[fileIndex] = {
           ...updated[fileIndex],
           progress: 0,
           status: 'error',
-          error: err instanceof Error ? err.message : 'Upload failed'
+          error: errorMessage
         }
         return updated
       })

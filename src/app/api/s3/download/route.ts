@@ -5,6 +5,10 @@ import { ensureAWSInitialized } from '@/lib/aws/initialize';
 import { createErrorResponse, validateAuthentication, validateObjectKey } from '@/lib/api/utils';
 import { API_ERROR_CODES } from '@/lib/api/types';
 
+// Configure route handler
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 // POST /api/s3/download - Stream download file from S3
 export async function POST(request: NextRequest) {
   try {
