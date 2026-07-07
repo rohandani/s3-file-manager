@@ -3,7 +3,6 @@ import { mockClient } from 'aws-sdk-client-mock';
 import {
   S3Client,
   CreateBucketCommand,
-  ListBucketsCommand,
   ListObjectsV2Command,
   PutObjectCommand,
   DeleteObjectCommand,
@@ -28,95 +27,140 @@ describe('S3Service', () => {
     vi.clearAllMocks();
   });
 
-  describe('createBucket', () => {
-    it('should create a bucket with proper naming convention', async () => {
-      const bucketName = 's3-file-manager-test-my-bucket-2026-07-06';
-      
-      s3Mock.on(CreateBucketCommand).resolves({});
-
-      // Mock Date to return consistent date
-      const mockDate = new Date('2026-07-06T00:00:00Z');
-      vi.setSystemTime(mockDate);
-
-      const result = await s3Service.createBucket('my-bucket', 'user123');
-
-      expect(result).toBe(bucketName);
-      expect(s3Mock.commandCalls(CreateBucketCommand)).toHaveLength(1);
-      expect(s3Mock.commandCalls(CreateBucketCommand)[0].args[0].input).toEqual({
-        Bucket: bucketName,
-        CreateBucketConfiguration: undefined,
+  describe('ensureMainBucket', () => {
+    it('should return existing bucket name if bucket exists', async () => {
+      s3Mock.on(ListObjectsV2Command).resolves({
+        Contents: []
       });
 
-      vi.useRealTimers();
+      const result = await s3Service.ensureMainBucket();
+
+      expect(result).toBe('s3-file-manager-test');
+      expect(s3Mock.commandCalls(ListObjectsV2Command)).toHaveLength(1);
     });
 
-    it('should sanitize invalid characters in bucket names', async () => {
+    it('should create bucket if it does not exist', async () => {
+      const noSuchBucketError = new Error('NoSuchBucket');
+      noSuchBucketError.name = 'NoSuchBucket';
+      
+      s3Mock.on(ListObjectsV2Command).rejects(noSuchBucketError);
       s3Mock.on(CreateBucketCommand).resolves({});
-      
-      const mockDate = new Date('2026-07-06T00:00:00Z');
-      vi.setSystemTime(mockDate);
 
-      const result = await s3Service.createBucket('My Bucket!@#', 'user123');
+      const result = await s3Service.ensureMainBucket();
 
-      expect(result).toBe('s3-file-manager-test-my-bucket-2026-07-06');
-      vi.useRealTimers();
-    });
-
-    it('should throw error when bucket already exists', async () => {
-      const error = new Error('Bucket already exists');
-      error.name = 'BucketAlreadyExists';
-      s3Mock.on(CreateBucketCommand).rejects(error);
-
-      await expect(s3Service.createBucket('existing-bucket', 'user123'))
-        .rejects.toThrow('already exists');
-    });
-
-    it('should validate bucket name length', async () => {
-      // We need to create a very long bucket name to trigger validation
-      const longName = 'a'.repeat(100);
-      
-      await expect(s3Service.createBucket(longName, 'user123'))
-        .rejects.toThrow('between 3 and 63 characters');
+      expect(result).toBe('s3-file-manager-test');
+      expect(s3Mock.commandCalls(CreateBucketCommand)).toHaveLength(1);
+      expect(s3Mock.commandCalls(CreateBucketCommand)[0].args[0].input).toEqual({
+        Bucket: 's3-file-manager-test',
+        CreateBucketConfiguration: undefined,
+      });
     });
   });
 
-  describe('listUserBuckets', () => {
-    it('should return list of buckets with proper formatting', async () => {
-      const mockBuckets = [
-        { Name: 'bucket1', CreationDate: new Date('2026-01-01') },
-        { Name: 'bucket2', CreationDate: new Date('2026-02-01') },
-      ];
+  describe('listFolders', () => {
+    it('should return list of folders from bucket', async () => {
+      s3Mock.on(ListObjectsV2Command)
+        .resolvesOnce({
+          Contents: []
+        })
+        .resolvesOnce({
+          CommonPrefixes: [
+            { Prefix: 'photos/' },
+            { Prefix: 'documents/' }
+          ]
+        })
+        .resolvesOnce({
+          Contents: [
+            { Key: 'photos/image1.jpg', Size: 1024, LastModified: new Date('2024-01-01') },
+            { Key: 'photos/image2.jpg', Size: 2048, LastModified: new Date('2024-01-02') }
+          ]
+        })
+        .resolvesOnce({
+          Contents: [
+            { Key: 'documents/doc1.pdf', Size: 5120, LastModified: new Date('2024-01-03') }
+          ]
+        });
 
-      s3Mock.on(ListBucketsCommand).resolves({
-        Buckets: mockBuckets
-      });
-
-      const result = await s3Service.listUserBuckets();
+      const result = await s3Service.listFolders();
 
       expect(result).toHaveLength(2);
       expect(result[0]).toEqual({
-        name: 'bucket1',
-        creationDate: new Date('2026-01-01'),
-        region: 'us-east-1',
+        name: 'documents',
+        prefix: 'documents/',
+        objectCount: 1,
+        lastModified: new Date('2024-01-03')
+      });
+      expect(result[1]).toEqual({
+        name: 'photos',
+        prefix: 'photos/',
+        objectCount: 2,
+        lastModified: new Date('2024-01-02')
       });
     });
+  });
 
-    it('should handle empty bucket list', async () => {
-      s3Mock.on(ListBucketsCommand).resolves({
-        Buckets: []
+  describe('createFolder', () => {
+    it('should create folder prefix with sanitized name', async () => {
+      s3Mock.on(ListObjectsV2Command).resolves({
+        Contents: []
       });
 
-      const result = await s3Service.listUserBuckets();
+      const result = await s3Service.createFolder('My Photos');
 
-      expect(result).toHaveLength(0);
+      expect(result).toBe('my-photos/');
     });
 
-    it('should handle missing Buckets property', async () => {
-      s3Mock.on(ListBucketsCommand).resolves({});
+    it('should sanitize invalid characters in folder names', async () => {
+      s3Mock.on(ListObjectsV2Command).resolves({
+        Contents: []
+      });
 
-      const result = await s3Service.listUserBuckets();
+      const result = await s3Service.createFolder('My Folder!@#');
 
-      expect(result).toHaveLength(0);
+      expect(result).toBe('my-folder/');
+    });
+  });
+
+  describe('uploadFileToFolder', () => {
+    it('should upload file to specified folder', async () => {
+      s3Mock.on(ListObjectsV2Command).resolves({
+        Contents: []
+      });
+      s3Mock.on(PutObjectCommand).resolves({});
+
+      const fileContent = Buffer.from('test content');
+      const result = await s3Service.uploadFileToFolder('photos', 'test.jpg', fileContent, 'image/jpeg');
+
+      expect(result.success).toBe(true);
+      expect(result.fileKey).toBe('photos/test.jpg');
+      expect(result.location).toBe('s3://s3-file-manager-test/photos/test.jpg');
+      expect(s3Mock.commandCalls(PutObjectCommand)).toHaveLength(1);
+    });
+
+    it('should handle upload failure', async () => {
+      s3Mock.on(ListObjectsV2Command).resolves({
+        Contents: []
+      });
+      s3Mock.on(PutObjectCommand).rejects(new Error('Upload failed'));
+
+      const fileContent = Buffer.from('test content');
+      const result = await s3Service.uploadFileToFolder('photos', 'test.jpg', fileContent);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Upload failed');
+    });
+
+    it('should use default content type when not provided', async () => {
+      s3Mock.on(ListObjectsV2Command).resolves({
+        Contents: []
+      });
+      s3Mock.on(PutObjectCommand).resolves({});
+
+      const fileContent = Buffer.from('test content');
+      await s3Service.uploadFileToFolder('documents', 'test.txt', fileContent);
+
+      expect(s3Mock.commandCalls(PutObjectCommand)[0].args[0].input.ContentType)
+        .toBe('application/octet-stream');
     });
   });
 
@@ -127,14 +171,14 @@ describe('S3Service', () => {
           Key: 'file1.txt',
           Size: 1024,
           LastModified: new Date('2026-01-01'),
-          StorageClass: 'STANDARD',
+          StorageClass: 'STANDARD' as const,
           ETag: '"abc123"',
         },
         {
           Key: 'file2.jpg',
           Size: 2048,
           LastModified: new Date('2026-01-02'),
-          StorageClass: 'IA',
+          StorageClass: 'REDUCED_REDUNDANCY' as const,
           ETag: '"def456"',
         },
       ];
@@ -257,7 +301,7 @@ describe('S3Service', () => {
       const mockMetadata = {
         ContentLength: 1024,
         LastModified: new Date('2026-01-01'),
-        StorageClass: 'STANDARD',
+        StorageClass: 'STANDARD' as const,
         ETag: '"abc123"',
       };
 

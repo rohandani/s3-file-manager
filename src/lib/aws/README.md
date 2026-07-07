@@ -12,7 +12,7 @@ The following environment variables must be configured:
 AWS_ACCESS_KEY_ID=your-aws-access-key-id
 AWS_SECRET_ACCESS_KEY=your-aws-secret-access-key
 AWS_REGION=us-east-1
-AWS_S3_BUCKET_PREFIX=s3-file-manager
+AWS_S3_DEFAULT_BUCKET=s3-file-manager
 ```
 
 ### Security Notes
@@ -72,7 +72,7 @@ Buckets are automatically named using the pattern:
 `{prefix}-{sanitized-user-name}-{YYYY-MM-DD}`
 
 Where:
-- `prefix` comes from `AWS_S3_BUCKET_PREFIX` environment variable
+- `default bucket` comes from `AWS_S3_DEFAULT_BUCKET` environment variable
 - `sanitized-user-name` is the user input with invalid characters replaced
 - Date stamp ensures uniqueness and organization
 

@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import SessionProvider from '@/components/auth/SessionProvider';
+import AWSInitializer from '@/components/aws/AWSInitializer';
 import { auth } from '@/lib/auth/auth';
 
 const geistSans = Geist({
@@ -44,6 +45,7 @@ export default async function RootLayout({
     >
       <body className="min-h-full flex flex-col">
         <SessionProvider session={session}>
+          <AWSInitializer />
           {children}
         </SessionProvider>
       </body>

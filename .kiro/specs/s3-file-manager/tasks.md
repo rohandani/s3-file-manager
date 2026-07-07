@@ -39,7 +39,7 @@
   - Create API route for generating presigned download URLs
   - _Requirements: 4.1, 4.2, 4.3, 5.1, 6.1, 6.2_
 
-- [ ] 6. Simplify FileUploadManager and integrate real bucket operations
+- [x] 6. Simplify FileUploadManager and integrate real bucket operations
   - Remove zip/method selection UI (individual upload only)
   - Replace mock bucket list with actual API calls
   - Connect bucket creation form to API endpoint

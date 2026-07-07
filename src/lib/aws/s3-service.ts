@@ -25,6 +25,13 @@ export interface ObjectInfo {
     etag: string;
 }
 
+export interface FolderInfo {
+    name: string;
+    prefix: string;
+    objectCount: number;
+    lastModified?: Date;
+}
+
 export interface UploadResult {
     success: boolean;
     fileKey: string;
@@ -35,57 +42,220 @@ export interface UploadResult {
 
 export class S3Service {
     private s3Client;
+    private readonly DEFAULT_BUCKET: string;
 
     constructor() {
         this.s3Client = getS3Client();
+        this.DEFAULT_BUCKET = process.env.AWS_S3_DEFAULT_BUCKET || 's3-file-manager';
     }
 
     /**
-     * Creates a new S3 bucket with user naming and date stamping
+     * Initializes the service by ensuring the default bucket exists
+     * Should be called once when the app starts
      */
-    async createBucket(baseName: string, userId: string): Promise<string> {
-        // Validate bucket name
-        const sanitizedBaseName = this.sanitizeBucketName(baseName);
-        const dateStamp = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
-        const bucketPrefix = process.env.AWS_S3_BUCKET_PREFIX || 's3-file-manager';
-        const bucketName = `${bucketPrefix}-${sanitizedBaseName}-${dateStamp}`.toLowerCase();
-
-        // Validate final bucket name
-        this.validateBucketName(bucketName);
-
+    async initialize(): Promise<void> {
         try {
-            const command = new CreateBucketCommand({
-                Bucket: bucketName,
-                CreateBucketConfiguration: process.env.AWS_REGION !== 'us-east-1' ? {
-                    LocationConstraint: process.env.AWS_REGION as any,
-                } : undefined,
-            });
-
-            await this.s3Client.send(command);
-            return bucketName;
-        } catch (error: any) {
-            if (error?.name === 'BucketAlreadyExists' || error?.name === 'BucketAlreadyOwnedByYou') {
-                throw new Error(`Bucket name '${bucketName}' already exists. Please choose a different name.`);
-            }
-            throw new Error(`Failed to create bucket: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            await this.ensureMainBucket();
+            console.log(`S3 Service initialized with bucket: ${this.DEFAULT_BUCKET}`);
+        } catch (error) {
+            console.error('Failed to initialize S3 Service:', error);
+            // Don't throw - let the app continue, bucket will be created on first use
         }
     }
 
     /**
-     * Lists all buckets associated with the current AWS credentials
+     * Ensures the main bucket exists, creates it if it doesn't
      */
-    async listUserBuckets(): Promise<BucketInfo[]> {
+    async ensureMainBucket(): Promise<string> {
         try {
-            const command = new ListBucketsCommand({});
-            const response = await this.s3Client.send(command);
+            // First, try to check if we can list all buckets to see if our bucket exists
+            const listBucketsCommand = new ListBucketsCommand({});
+            const bucketsResponse = await this.s3Client.send(listBucketsCommand);
+            
+            // Check if our bucket already exists
+            const existingBucket = bucketsResponse.Buckets?.find(bucket => bucket.Name === this.DEFAULT_BUCKET);
+            if (existingBucket) {
+                console.log(`Found existing bucket: ${this.DEFAULT_BUCKET}`);
+                return this.DEFAULT_BUCKET;
+            }
 
-            return (response.Buckets || []).map(bucket => ({
-                name: bucket.Name!,
-                creationDate: bucket.CreationDate!,
-                region: process.env.AWS_REGION || 'us-east-1',
-            }));
+            // If bucket doesn't exist, create it
+            console.log(`Bucket ${this.DEFAULT_BUCKET} not found, creating it...`);
+            return await this.createBucket();
+
+        } catch (error: any) {
+            console.error('Error in ensureMainBucket:', error.message);
+            
+            // If we can't list buckets, try to access the bucket directly
+            if (error?.name === 'AccessDenied' || error?.name === 'UnauthorizedOperation') {
+                console.log('Cannot list buckets, trying direct bucket access...');
+                return await this.checkBucketDirectly();
+            }
+            
+            throw new Error(`Failed to access main bucket: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    }
+
+    /**
+     * Try to access the bucket directly when we can't list all buckets
+     */
+    private async checkBucketDirectly(): Promise<string> {
+        try {
+            // Try to list objects in the bucket to see if it exists
+            const command = new ListObjectsV2Command({
+                Bucket: this.DEFAULT_BUCKET,
+                MaxKeys: 1,
+            });
+
+            await this.s3Client.send(command);
+            console.log(`Bucket ${this.DEFAULT_BUCKET} exists and is accessible`);
+            return this.DEFAULT_BUCKET;
+
+        } catch (error: any) {
+            if (error?.name === 'NoSuchBucket') {
+                console.log(`Bucket ${this.DEFAULT_BUCKET} does not exist, creating it...`);
+                return await this.createBucket();
+            }
+            
+            // For other errors, provide more specific error messages
+            if (error.message?.includes('endpoint')) {
+                throw new Error(`Region mismatch: The bucket may exist in a different region. Current region: ${process.env.AWS_REGION}`);
+            }
+            
+            throw new Error(`Failed to access bucket directly: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    }
+
+    /**
+     * Creates the main bucket with proper error handling
+     */
+    private async createBucket(): Promise<string> {
+        try {
+            const region = process.env.AWS_REGION || 'us-east-1';
+            
+            const createCommand = new CreateBucketCommand({
+                Bucket: this.DEFAULT_BUCKET,
+                CreateBucketConfiguration: region !== 'us-east-1' ? {
+                    LocationConstraint: region as any,
+                } : undefined,
+            });
+
+            await this.s3Client.send(createCommand);
+            console.log(`Successfully created S3 bucket: ${this.DEFAULT_BUCKET} in region: ${region}`);
+            return this.DEFAULT_BUCKET;
+
+        } catch (createError: any) {
+            if (createError?.name === 'BucketAlreadyExists') {
+                throw new Error(`Bucket name '${this.DEFAULT_BUCKET}' is already taken globally. Please choose a different name in your AWS_S3_DEFAULT_BUCKET environment variable.`);
+            }
+            
+            if (createError?.name === 'BucketAlreadyOwnedByYou') {
+                console.log(`Bucket ${this.DEFAULT_BUCKET} already exists and is owned by you`);
+                return this.DEFAULT_BUCKET;
+            }
+            
+            throw new Error(`Failed to create bucket: ${createError instanceof Error ? createError.message : 'Unknown error'}`);
+        }
+    }
+
+    /**
+     * Lists folders (prefixes) in the main bucket
+     */
+    async listFolders(): Promise<FolderInfo[]> {
+        try {
+            await this.ensureMainBucket();
+
+            const command = new ListObjectsV2Command({
+                Bucket: this.DEFAULT_BUCKET,
+                Delimiter: '/',
+            });
+
+            const response = await this.s3Client.send(command);
+            const folders: FolderInfo[] = [];
+
+            // Process common prefixes (folders)
+            if (response.CommonPrefixes) {
+                for (const prefix of response.CommonPrefixes) {
+                    if (prefix.Prefix) {
+                        const folderName = prefix.Prefix.replace('/', '');
+                        
+                        // Get object count and last modified for this folder
+                        const folderObjects = await this.listObjects(this.DEFAULT_BUCKET, prefix.Prefix, 1000);
+                        
+                        folders.push({
+                            name: folderName,
+                            prefix: prefix.Prefix,
+                            objectCount: folderObjects.length,
+                            lastModified: folderObjects.length > 0 
+                                ? folderObjects.reduce((latest, obj) => 
+                                    obj.lastModified > latest ? obj.lastModified : latest, 
+                                    folderObjects[0].lastModified)
+                                : undefined
+                        });
+                    }
+                }
+            }
+
+            return folders.sort((a, b) => a.name.localeCompare(b.name));
         } catch (error) {
-            throw new Error(`Failed to list buckets: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            throw new Error(`Failed to list folders: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    }
+
+    /**
+     * Creates a folder by ensuring it exists (will be created when first file is uploaded)
+     */
+    async createFolder(folderName: string): Promise<string> {
+        await this.ensureMainBucket();
+        
+        // Sanitize folder name
+        const sanitizedFolderName = this.sanitizeFolderName(folderName);
+        if (!sanitizedFolderName) {
+            throw new Error('Invalid folder name');
+        }
+
+        return `${sanitizedFolderName}/`;
+    }
+
+    /**
+     * Uploads a file to a specific folder in the main bucket
+     */
+    async uploadFileToFolder(
+        folderName: string,
+        fileName: string,
+        fileContent: Buffer | Uint8Array | string,
+        contentType?: string
+    ): Promise<UploadResult> {
+        try {
+            await this.ensureMainBucket();
+
+            const sanitizedFolderName = this.sanitizeFolderName(folderName);
+            const sanitizedFileName = this.sanitizeFileName(fileName);
+            const fileKey = `${sanitizedFolderName}/${sanitizedFileName}`;
+
+            const command = new PutObjectCommand({
+                Bucket: this.DEFAULT_BUCKET,
+                Key: fileKey,
+                Body: fileContent,
+                ContentType: contentType || 'application/octet-stream',
+            });
+
+            await this.s3Client.send(command);
+
+            return {
+                success: true,
+                fileKey,
+                location: `s3://${this.DEFAULT_BUCKET}/${fileKey}`,
+                size: fileContent instanceof Buffer ? fileContent.length : fileContent.toString().length,
+            };
+        } catch (error) {
+            return {
+                success: false,
+                fileKey: `${folderName}/${fileName}`,
+                location: '',
+                size: 0,
+                error: error instanceof Error ? error.message : 'Unknown error',
+            };
         }
     }
 
@@ -254,14 +424,26 @@ export class S3Service {
     }
 
     /**
-     * Sanitizes user input for bucket names
+     * Sanitizes user input for folder names
      */
-    private sanitizeBucketName(input: string): string {
+    private sanitizeFolderName(input: string): string {
         return input
-            .toLowerCase()
-            .replace(/[^a-z0-9-]/g, '-') // Replace invalid characters with hyphens
+            .trim()
+            .replace(/[^a-zA-Z0-9-_.]/g, '-') // Replace invalid characters with hyphens
             .replace(/-+/g, '-') // Replace multiple consecutive hyphens with single hyphen
-            .replace(/^-|-$/g, ''); // Remove leading and trailing hyphens
+            .replace(/^-|-$/g, '') // Remove leading and trailing hyphens
+            .toLowerCase();
+    }
+
+    /**
+     * Sanitizes user input for file names
+     */
+    private sanitizeFileName(input: string): string {
+        return input
+            .trim()
+            .replace(/[^a-zA-Z0-9-_.]/g, '_') // Replace invalid characters with underscores
+            .replace(/_+/g, '_') // Replace multiple consecutive underscores with single underscore
+            .replace(/^_|_$/g, ''); // Remove leading and trailing underscores
     }
 }
 
